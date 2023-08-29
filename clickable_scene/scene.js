@@ -5,12 +5,7 @@ class ClickableScene {
     canvas;
     gl;
     program;
-    bufferObjects;
-
-    // Attribute locations
-    aPosition;
-    aColour;
-    aNormal;
+    bufferObjects = [];
 
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -26,24 +21,26 @@ class ClickableScene {
     // Initialise the scene
     initialise() {
         this.compileShader();
-        this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
     }
 
     /**
      * Compile the shader program
      */
     compileShader() {
-        const vShader = gl.createShader(gl.VERTEX_SHADER);
-        const fShader = gl.createShader(gl.FRAGMENT_SHADER);
+        const vShader = this.gl.createShader(this.gl.VERTEX_SHADER);
+        const fShader = this.gl.createShader(this.gl.FRAGMENT_SHADER);
         const vertSource = `
             attribute vec4 aPosition;
             attribute vec4 aColour;
 
+            uniform mat4 uViewMatrix;
+
             varying vec4 vColour;
+
 
             void main() {
                 vColour = aColour;
-                gl_Position = aPosition;
+                gl_Position = uViewMatrix * aPosition;
             }
         `;
         const fragSource = `
@@ -60,26 +57,20 @@ class ClickableScene {
         this.gl.compileShader(vShader);
         this.gl.compileShader(fShader);
         this.program = this.gl.createProgram();
-        this.gl.attachShader(program, vShader);
-        this.gl.attachShader(program, fShader);
-        this.gl.linkProgram(program);
+        this.gl.attachShader(this.program, vShader);
+        this.gl.attachShader(this.program, fShader);
+        this.gl.linkProgram(this.program);
     }
 
     // Add the given 3D object to the scene
-    addObject(vertices, colours, normals, indices) {
+    addObject(obj) {
         this.bufferObjects.push ({
-            vertexBuffer : this.createBuffer(vertices, this.gl.ARRAY_BUFFER, Float32Array),
-            colourBuffer : this.createBuffer(colours, this.gl.ARRAY_BUFFER, Float32Array),
-            normalBuffer : this.createBuffer(normals, this.gl.ARRAY_BUFFER, Float32Array),
-            indexBuffer : this.createBuffer(indices, this.gl.ELEMENT_ARRAY_BUFFER, Int16Array)
+            vertexBuffer : this.createBuffer(obj.vertices, this.gl.ARRAY_BUFFER, Float32Array),
+            colourBuffer : this.createBuffer(obj.colours, this.gl.ARRAY_BUFFER, Float32Array),
+            normalBuffer : this.createBuffer(obj.normals, this.gl.ARRAY_BUFFER, Float32Array),
+            indexBuffer : this.createBuffer(obj.indices, this.gl.ELEMENT_ARRAY_BUFFER, Int16Array),
+            number : obj.indices.length
         });
-    }
-
-    // Set attribute locations in the GPU
-    setAttribLocations() {
-        this.aColour = this.gl.getAttribLocation(this.program, "aColour");
-        this.aPosition = this.gl.getAttribLocation(this.program, "aPosition");
-        this.aNormal = this.gl.getAttribLocation(this.program, "aNormal");
     }
 
     /**
@@ -89,18 +80,60 @@ class ClickableScene {
      * @param {Data Type} type The type of the buffer.
      */
     createBuffer(data, arrayBufferType, type) {
-        const buffer = gl.createBuffer();
-        gl.bindBuffer(arrayBufferType, buffer);
-        gl.bufferData(arrayBufferType, new type(data), gl.STATIC_DRAW);
+        const buffer = this.gl.createBuffer();
+        this.gl.bindBuffer(arrayBufferType, buffer);
+        this.gl.bufferData(arrayBufferType, new type(data), this.gl.STATIC_DRAW);
         return buffer;
+    }
+
+    // Bind the given object's buffers
+    bindObjBuffers(obj) {
+        // Vertex buffer
+        let aPosition = this.gl.getAttribLocation(this.program, "aPosition");
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.vertexBuffer);
+        this.gl.vertexAttribPointer(aPosition, 4, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(aPosition);
+        // Colour buffer
+        let aColour = this.gl.getAttribLocation(this.program, "aColour");
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.colourBuffer);
+        this.gl.vertexAttribPointer(aColour, 4, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(aColour);
+        // Normal buffer
+        // let aNormal = this.gl.getAttribLocation(this.program, "aNormal");
+        // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.normalBuffer);
+        // this.gl.vertexAttribPointer(aNormal, 4, this.gl.FLOAT, false, 0, 0);
+        // this.gl.enableVertexAttribArray(aNormal);
+        // Index buffer
+        this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, obj.indexBuffer);
     }
 
     /**
      * Animate
      */
     animate() {
-        
-        // requestAnimationFrame(this.animate.bind(this));
+        // time
+        this.now = performance.now();
+        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);
+        this.gl.clearDepth(1.0);
+        this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        this.gl.enable(this.gl.DEPTH_TEST);
+
+        this.gl.useProgram(this.program);
+
+        for(let bufferObject of this.bufferObjects){
+            
+            this.bindObjBuffers(bufferObject);
+            
+            // Bind view matrix
+            let theta = 
+            let viewMatrix = [
+
+            ]
+
+            this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
+        }
+        requestAnimationFrame(this.animate.bind(this));
     }
 }
 
@@ -155,7 +188,10 @@ function cube(l, colour) {
     ];
 
     // Cyan
-    let colours = vertices.map(()=>(colour.flat()))
+    let colours = [];
+    for(let i = 0; i < vertices.length/4; i++) {
+        colours.push(...colour);
+    }
 
     // Normals
     let normals = [
@@ -193,7 +229,38 @@ function cube(l, colour) {
     }
 }
 
+function plane() {
+    const vertices = [
+        -0.5,-0.5,0,1,
+         0.5,-0.5,0,1,
+        -0.5, 0.5,0,1,
+         0.5, 0.5,0,1
+    ]
+    const indices = [
+        0,1,2,
+        1,2,3
+    ]
+    const colours = [
+        1,1,1,1,
+        1,1,1,1,
+        1,1,1,1,
+        1,1,1,1
+    ]
+    const normals = [
+        0,0,1,0,
+        0,0,1,0,
+        0,0,1,0,
+        0,0,1,0
+    ]
+    return {
+        vertices : vertices,
+        indices : indices,
+        colours : colours,
+        normals : normals
+    }
+}
+
 const scene = new ClickableScene("canvas");
-const cube1 = cube(0.5, [0.6,0.9,0.2,1]);
-scene.addObject(cube1.vertices, cube1.colours, cube1.normals, cube1.indices);
+const cube1 = cube(0.3, [0.6,0.9,0.2,1]);
+scene.addObject(cube1);
 scene.run();
