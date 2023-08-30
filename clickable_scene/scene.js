@@ -126,14 +126,60 @@ class ClickableScene {
             this.bindObjBuffers(bufferObject);
             
             // Bind view matrix
-            let theta = 
-            let viewMatrix = [
-
-            ]
+            let theta = performance.now()/10000;
+            let viewMatrix = this.getRotMatX(theta);
+            
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, "uViewMatrix"), false, viewMatrix);
 
             this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
         }
         requestAnimationFrame(this.animate.bind(this));
+    }
+
+    /**
+     * Matrices
+     */
+    matMul(mat1, mat2) {
+        let res = [];
+        for (let i = 0; i < 4; i++) {
+            for (let j = 0; j < 4; j++) {
+                res[i*4 + j] = 0;
+                for (let k = 0; k < 4; k++) {
+                    res[i*4 + j] += mat1[i*4 + k] * mat2[k*4 + j];
+                }
+            }
+        }
+        return res;
+    }
+    getRotMatX(theta) {
+        let cost = Math.cos(theta);
+        let sint = Math.sin(theta);
+        return [
+            cost, 0, -sint, 0,
+            0, 1, 0, 0,
+            sint, 0, cost, 0,
+            0, 0, 0, 1
+        ];
+    }
+    getRotMatZ(theta) {
+        let cost = Math.cos(theta);
+        let sint = Math.sin(theta);
+        return [
+            cost, -sint, 0, 0,
+            sint,  cost, 0, 0,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        ];
+    }
+    getRotMatY(theta) {
+        let cost = Math.cos(theta);
+        let sint = Math.sin(theta);
+        return [
+            1, 0, 0, 0,
+            0, cost, -sint, 0,
+            0, sint,  cost, 0,
+            0, 0, 0, 1
+        ]
     }
 }
 
@@ -264,3 +310,17 @@ const scene = new ClickableScene("canvas");
 const cube1 = cube(0.3, [0.6,0.9,0.2,1]);
 scene.addObject(cube1);
 scene.run();
+
+let mat1 = [
+    1,2,3,4,
+    5,6,7,8,
+    1,2,3,4,
+    0,0,0,1
+]
+let mat2 = [
+    9,9,9,8,
+    7,7,7,6,
+    5,4,3,2,
+    1,2,3,4
+]
+console.log(scene.matMul(mat1, mat2));
