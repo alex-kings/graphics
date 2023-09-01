@@ -1,3 +1,5 @@
+import "../lib/gl-matrix-min.js"
+
 /**
  * 3D scene rendered using a webGL context.
  */
@@ -32,15 +34,19 @@ class ClickableScene {
         const vertSource = `
             attribute vec4 aPosition;
             attribute vec4 aColour;
+            attribute vec4 aNormal;
 
-            uniform mat4 uViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            uniform mat4 uModelMatrix;
 
             varying vec4 vColour;
 
+            vec3 lightDirection = normalize(vec3(0.5, 1.0, 1.0));
 
             void main() {
-                vColour = aColour;
-                gl_Position = uViewMatrix * aPosition;
+                float lighting = dot(lightDirection, (uModelMatrix * aNormal).xyz);
+                vColour = 0.4*aColour + 0.6*vec4((aColour.xyz * lighting), 1.0);
+                gl_Position = uProjectionMatrix * uModelMatrix * aPosition;
             }
         `;
         const fragSource = `
@@ -63,13 +69,15 @@ class ClickableScene {
     }
 
     // Add the given 3D object to the scene
-    addObject(obj) {
+    addObject(obj, xPos, yPos) {
         this.bufferObjects.push ({
             vertexBuffer : this.createBuffer(obj.vertices, this.gl.ARRAY_BUFFER, Float32Array),
             colourBuffer : this.createBuffer(obj.colours, this.gl.ARRAY_BUFFER, Float32Array),
             normalBuffer : this.createBuffer(obj.normals, this.gl.ARRAY_BUFFER, Float32Array),
             indexBuffer : this.createBuffer(obj.indices, this.gl.ELEMENT_ARRAY_BUFFER, Int16Array),
-            number : obj.indices.length
+            number : obj.indices.length,
+            xPos : xPos,
+            yPos : yPos
         });
     }
 
@@ -99,10 +107,10 @@ class ClickableScene {
         this.gl.vertexAttribPointer(aColour, 4, this.gl.FLOAT, false, 0, 0);
         this.gl.enableVertexAttribArray(aColour);
         // Normal buffer
-        // let aNormal = this.gl.getAttribLocation(this.program, "aNormal");
-        // this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.normalBuffer);
-        // this.gl.vertexAttribPointer(aNormal, 4, this.gl.FLOAT, false, 0, 0);
-        // this.gl.enableVertexAttribArray(aNormal);
+        let aNormal = this.gl.getAttribLocation(this.program, "aNormal");
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.normalBuffer);
+        this.gl.vertexAttribPointer(aNormal, 4, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(aNormal);
         // Index buffer
         this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, obj.indexBuffer);
     }
@@ -121,65 +129,33 @@ class ClickableScene {
 
         this.gl.useProgram(this.program);
 
-        for(let bufferObject of this.bufferObjects){
-            
-            this.bindObjBuffers(bufferObject);
-            
-            // Bind view matrix
-            let theta = performance.now()/10000;
-            let viewMatrix = this.getRotMatX(theta);
-            
-            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, "uViewMatrix"), false, viewMatrix);
+        // View
+        let viewMatrix = mat4.create();
+        mat4.lookAt(viewMatrix, [0,0,3], [0,0,0], [0,1,0]);
+        // Perspective
+        let perspectiveMatrix = mat4.create();
+        mat4.perspective(perspectiveMatrix, Math.PI/2, this.canvas.width / this.canvas.height, 0.01, 5);
+        // Projection (perspective * view)
+        let projectionMatrix = mat4.create();
+        mat4.mul(projectionMatrix, perspectiveMatrix, viewMatrix);
+        
+        this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, "uProjectionMatrix"), false, projectionMatrix);
 
+        for(let bufferObject of this.bufferObjects){
+            // Bind object buffers (vertices, normals, indices, colours)
+            this.bindObjBuffers(bufferObject);
+
+            // Model
+            let theta = performance.now()/1000;
+            let modelMatrix = mat4.create();
+            mat4.fromTranslation(modelMatrix, [bufferObject.xPos, bufferObject.yPos,0]);
+            mat4.rotate(modelMatrix, modelMatrix, theta, [1,2,3]);
+            
+            // Pass uniform matrices
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, "uModelMatrix"), false, modelMatrix);
             this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
         }
         requestAnimationFrame(this.animate.bind(this));
-    }
-
-    /**
-     * Matrices
-     */
-    matMul(mat1, mat2) {
-        let res = [];
-        for (let i = 0; i < 4; i++) {
-            for (let j = 0; j < 4; j++) {
-                res[i*4 + j] = 0;
-                for (let k = 0; k < 4; k++) {
-                    res[i*4 + j] += mat1[i*4 + k] * mat2[k*4 + j];
-                }
-            }
-        }
-        return res;
-    }
-    getRotMatX(theta) {
-        let cost = Math.cos(theta);
-        let sint = Math.sin(theta);
-        return [
-            cost, 0, -sint, 0,
-            0, 1, 0, 0,
-            sint, 0, cost, 0,
-            0, 0, 0, 1
-        ];
-    }
-    getRotMatZ(theta) {
-        let cost = Math.cos(theta);
-        let sint = Math.sin(theta);
-        return [
-            cost, -sint, 0, 0,
-            sint,  cost, 0, 0,
-            0, 0, 1, 0,
-            0, 0, 0, 1
-        ];
-    }
-    getRotMatY(theta) {
-        let cost = Math.cos(theta);
-        let sint = Math.sin(theta);
-        return [
-            1, 0, 0, 0,
-            0, cost, -sint, 0,
-            0, sint,  cost, 0,
-            0, 0, 0, 1
-        ]
     }
 }
 
@@ -275,52 +251,12 @@ function cube(l, colour) {
     }
 }
 
-function plane() {
-    const vertices = [
-        -0.5,-0.5,0,1,
-         0.5,-0.5,0,1,
-        -0.5, 0.5,0,1,
-         0.5, 0.5,0,1
-    ]
-    const indices = [
-        0,1,2,
-        1,2,3
-    ]
-    const colours = [
-        1,1,1,1,
-        1,1,1,1,
-        1,1,1,1,
-        1,1,1,1
-    ]
-    const normals = [
-        0,0,1,0,
-        0,0,1,0,
-        0,0,1,0,
-        0,0,1,0
-    ]
-    return {
-        vertices : vertices,
-        indices : indices,
-        colours : colours,
-        normals : normals
-    }
-}
-
 const scene = new ClickableScene("canvas");
-const cube1 = cube(0.3, [0.6,0.9,0.2,1]);
-scene.addObject(cube1);
+const c = cube(0.3, [0.6,0.9,0.2,1]);
+const separation = 1.5
+for(let i = 0; i < 9; i++) {
+    let x = separation*(i%3-1);
+    let y = separation*(Math.floor(i/3) -1);
+    scene.addObject(c, x, y);
+}
 scene.run();
-
-let mat1 = [
-    1,2,3,4,
-    5,6,7,8,
-    1,2,3,4,
-    0,0,0,1
-]
-let mat2 = [
-    9,9,9,8,
-    7,7,7,6,
-    5,4,3,2,
-    1,2,3,4
-]
-console.log(scene.matMul(mat1, mat2));
