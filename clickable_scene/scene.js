@@ -1,4 +1,5 @@
 import "../lib/gl-matrix-min.js"
+import { RenderTarget } from "./RenderTarget.js";
 
 /**
  * 3D scene rendered using a webGL context.
@@ -6,8 +7,11 @@ import "../lib/gl-matrix-min.js"
 class ClickableScene {
     canvas;
     gl;
-    program;
+    program; // Program to render to canvas
+    pickProgram; // Program for picking objects by hovering with mouse
     bufferObjects = [];
+    projectionMatrix;
+    pickingRenderTarget;
 
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -22,16 +26,11 @@ class ClickableScene {
 
     // Initialise the scene
     initialise() {
-        this.compileShader();
-    }
-
-    /**
-     * Compile the shader program
-     */
-    compileShader() {
-        const vShader = this.gl.createShader(this.gl.VERTEX_SHADER);
-        const fShader = this.gl.createShader(this.gl.FRAGMENT_SHADER);
-        const vertSource = `
+        // Create the render target
+        this.pickingRenderTarget = new RenderTarget(this.gl, this.canvas.width, this.canvas.height);
+        // Create programs
+        this.program = this.compileShaders(
+            `
             attribute vec4 aPosition;
             attribute vec4 aColour;
             attribute vec4 aNormal;
@@ -47,25 +46,66 @@ class ClickableScene {
                 float lighting = dot(lightDirection, (uModelMatrix * aNormal).xyz);
                 vColour = 0.4*aColour + 0.6*vec4((aColour.xyz * lighting), 1.0);
                 gl_Position = uProjectionMatrix * uModelMatrix * aPosition;
-            }
-        `;
-        const fragSource = `
+            }`
+        ,
+            `
             precision mediump float;
 
             varying vec4 vColour;
 
             void main() {
                 gl_FragColor = vColour;
+            }`
+        );
+        this.pickProgram = this.compileShaders(
+            `
+            attribute vec4 a_position;
+ 
+            uniform mat4 uModelMatrix;
+            uniform mat4 uProjectionMatrix;
+           
+            void main() {
+              // Multiply the position by the matrix.
+              gl_Position = uProjectionMatrix * uModelMatrix * a_position;
             }
-        `;
+            `,
+            `
+            precision mediump float;
+ 
+            uniform vec4 uId;
+           
+            void main() {
+               gl_FragColor = uId;
+            }
+            `
+        );
+        // Create projection matrix
+        // View
+        let viewMatrix = mat4.create();
+        mat4.lookAt(viewMatrix, [0,0,3], [0,0,0], [0,1,0]);
+        // Perspective
+        let perspectiveMatrix = mat4.create();
+        mat4.perspective(perspectiveMatrix, Math.PI/2, this.canvas.width / this.canvas.height, 0.01, 5);
+        // Projection (perspective * view)
+        this.projectionMatrix = mat4.create();
+        mat4.mul(this.projectionMatrix, perspectiveMatrix, viewMatrix);
+    }
+
+    /**
+     * Compile the given vert and frag shaders into a program
+     */
+    compileShaders(vertSource, fragSource) {
+        const vShader = this.gl.createShader(this.gl.VERTEX_SHADER);
+        const fShader = this.gl.createShader(this.gl.FRAGMENT_SHADER);
         this.gl.shaderSource(vShader, vertSource);
         this.gl.shaderSource(fShader, fragSource);
         this.gl.compileShader(vShader);
         this.gl.compileShader(fShader);
-        this.program = this.gl.createProgram();
-        this.gl.attachShader(this.program, vShader);
-        this.gl.attachShader(this.program, fShader);
-        this.gl.linkProgram(this.program);
+        const program = this.gl.createProgram();
+        this.gl.attachShader(program, vShader);
+        this.gl.attachShader(program, fShader);
+        this.gl.linkProgram(program);
+        return program;
     }
 
     // Add the given 3D object to the scene
@@ -115,31 +155,20 @@ class ClickableScene {
         this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, obj.indexBuffer);
     }
 
-    /**
-     * Animate
-     */
-    animate() {
+    // Draw all the objects with the given program
+    drawObjects(program) {
         // time
         this.now = performance.now();
-        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);
+        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);// CAREFUL THIS IS AN ISSUE
         this.gl.clearDepth(1.0);
         this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         this.gl.enable(this.gl.DEPTH_TEST);
 
-        this.gl.useProgram(this.program);
+        this.gl.useProgram(program);
 
-        // View
-        let viewMatrix = mat4.create();
-        mat4.lookAt(viewMatrix, [0,0,3], [0,0,0], [0,1,0]);
-        // Perspective
-        let perspectiveMatrix = mat4.create();
-        mat4.perspective(perspectiveMatrix, Math.PI/2, this.canvas.width / this.canvas.height, 0.01, 5);
-        // Projection (perspective * view)
-        let projectionMatrix = mat4.create();
-        mat4.mul(projectionMatrix, perspectiveMatrix, viewMatrix);
-        
-        this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, "uProjectionMatrix"), false, projectionMatrix);
+        // Bind the projection matrix
+        this.gl.uniformMatrix4fv(this.gl.getUniformLocation(program, "uProjectionMatrix"), false, this.projectionMatrix);
 
         for(let bufferObject of this.bufferObjects){
             // Bind object buffers (vertices, normals, indices, colours)
@@ -152,9 +181,23 @@ class ClickableScene {
             mat4.rotate(modelMatrix, modelMatrix, theta, [1,2,3]);
             
             // Pass uniform matrices
-            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(this.program, "uModelMatrix"), false, modelMatrix);
+            this.gl.uniformMatrix4fv(this.gl.getUniformLocation(program, "uModelMatrix"), false, modelMatrix);
             this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
         }
+    }
+
+    /**
+     * Animate
+     */
+    animate() {
+        // Draw to render target using the pick program
+        this.pickingRenderTarget.bind();
+        this.drawObjects(this.pickProgram);
+
+        // Now draw to canvas using the normal program
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.drawObjects(this.program);
+
         requestAnimationFrame(this.animate.bind(this));
     }
 }
