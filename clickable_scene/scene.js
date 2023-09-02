@@ -32,11 +32,11 @@ class ClickableScene {
         this.program = this.compileShaders(
             `
             attribute vec4 aPosition;
-            attribute vec4 aColour;
             attribute vec4 aNormal;
 
             uniform mat4 uProjectionMatrix;
             uniform mat4 uModelMatrix;
+            uniform vec3 uColour;
 
             varying vec4 vColour;
 
@@ -44,7 +44,7 @@ class ClickableScene {
 
             void main() {
                 float lighting = dot(lightDirection, (uModelMatrix * aNormal).xyz);
-                vColour = 0.4*aColour + 0.6*vec4((aColour.xyz * lighting), 1.0);
+                vColour = vec4(0.4*uColour + 0.6*(uColour * lighting), 1.0);
                 gl_Position = uProjectionMatrix * uModelMatrix * aPosition;
             }`
         ,
@@ -109,15 +109,17 @@ class ClickableScene {
     }
 
     // Add the given 3D object to the scene
-    addObject(obj, xPos, yPos) {
+    addObject(obj, xPos, yPos, colour, axis, rotSpeed) {
         this.bufferObjects.push ({
             vertexBuffer : this.createBuffer(obj.vertices, this.gl.ARRAY_BUFFER, Float32Array),
-            colourBuffer : this.createBuffer(obj.colours, this.gl.ARRAY_BUFFER, Float32Array),
             normalBuffer : this.createBuffer(obj.normals, this.gl.ARRAY_BUFFER, Float32Array),
             indexBuffer : this.createBuffer(obj.indices, this.gl.ELEMENT_ARRAY_BUFFER, Int16Array),
             number : obj.indices.length,
             xPos : xPos,
-            yPos : yPos
+            yPos : yPos,
+            colour : colour,
+            axis : axis,
+            rotSpeed : rotSpeed
         });
     }
 
@@ -141,11 +143,6 @@ class ClickableScene {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.vertexBuffer);
         this.gl.vertexAttribPointer(aPosition, 4, this.gl.FLOAT, false, 0, 0);
         this.gl.enableVertexAttribArray(aPosition);
-        // Colour buffer
-        let aColour = this.gl.getAttribLocation(this.program, "aColour");
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.colourBuffer);
-        this.gl.vertexAttribPointer(aColour, 4, this.gl.FLOAT, false, 0, 0);
-        this.gl.enableVertexAttribArray(aColour);
         // Normal buffer
         let aNormal = this.gl.getAttribLocation(this.program, "aNormal");
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, obj.normalBuffer);
@@ -178,11 +175,13 @@ class ClickableScene {
             let theta = performance.now()/1000;
             let modelMatrix = mat4.create();
             mat4.fromTranslation(modelMatrix, [bufferObject.xPos, bufferObject.yPos,0]);
-            mat4.rotate(modelMatrix, modelMatrix, theta, [1,2,3]);
+            mat4.rotate(modelMatrix, modelMatrix, theta * bufferObject.rotSpeed, bufferObject.axis);
             
             // Pass uniform matrices
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(program, "uModelMatrix"), false, modelMatrix);
             this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
+            // Pass uniform colour
+            this.gl.uniform3fv(this.gl.getUniformLocation(program, "uColour"), bufferObject.colour);
         }
     }
 
@@ -206,7 +205,7 @@ class ClickableScene {
  * Create a cube object.
  * Colour of the form [r,g,b,a];
  */
-function cube(l, colour) {
+function cube(l) {
     // Define and store geometry
 
     let vertices = [    // 4*6 = 24 vertices for the cuboid
@@ -252,12 +251,6 @@ function cube(l, colour) {
         20,22,23
     ];
 
-    // Cyan
-    let colours = [];
-    for(let i = 0; i < vertices.length/4; i++) {
-        colours.push(...colour);
-    }
-
     // Normals
     let normals = [
          0,-1, 0, 0,
@@ -288,18 +281,21 @@ function cube(l, colour) {
 
     return {
         vertices:vertices, 
-        colours:colours, 
         indices:indices, 
-        normals:normals 
+        normals:normals
     }
 }
 
 const scene = new ClickableScene("canvas");
-const c = cube(0.3, [0.6,0.9,0.2,1]);
+const c = cube(0.3);
 const separation = 1.5
 for(let i = 0; i < 9; i++) {
     let x = separation*(i%3-1);
     let y = separation*(Math.floor(i/3) -1);
-    scene.addObject(c, x, y);
+    scene.addObject(c, x, y, 
+        [Math.random(), Math.random(), Math.random()], // Colour
+        [Math.random(), Math.random(), Math.random()], // Axis rotation
+        Math.random()*3 // Rotation speed
+        );
 }
 scene.run();
