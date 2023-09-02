@@ -174,7 +174,8 @@ class ClickableScene {
             // Model
             let theta = performance.now()/1000;
             let modelMatrix = mat4.create();
-            mat4.fromTranslation(modelMatrix, [bufferObject.xPos, bufferObject.yPos,0]);
+            mat4.fromRotation(modelMatrix, bufferObject.rotSpeed * theta, bufferObject.axis);
+            mat4.translate(modelMatrix, modelMatrix,[bufferObject.xPos, bufferObject.yPos,0]);
             mat4.rotate(modelMatrix, modelMatrix, theta * bufferObject.rotSpeed, bufferObject.axis);
             
             // Pass uniform matrices
@@ -295,7 +296,7 @@ for(let i = 0; i < 9; i++) {
     scene.addObject(c, x, y, 
         [Math.random(), Math.random(), Math.random()], // Colour
         [Math.random(), Math.random(), Math.random()], // Axis rotation
-        Math.random()*3 // Rotation speed
+        Math.random()*2 // Rotation speed
         );
 }
 scene.run();
