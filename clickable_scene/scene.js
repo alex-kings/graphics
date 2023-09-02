@@ -300,3 +300,17 @@ for(let i = 0; i < 9; i++) {
         );
 }
 scene.run();
+
+canvas.addEventListener("mousemove",(e)=>{
+    let mousePos = [e.clientX - canvas.offsetLeft, e.clientY - canvas.offsetTop];
+    // Put in webgl coordinates
+
+
+})
+
+canvas.addEventListener("click",()=>{
+    scene.pickingRenderTarget.bind();
+    const data = new Uint8Array(4);
+    scene.gl.readPixels(130,130, 1,1,scene.gl.RGBA, scene.gl.UNSIGNED_BYTE, data);
+    console.log(data);
+})
