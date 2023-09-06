@@ -121,7 +121,7 @@ class ClickableScene {
     }
 
     // Add the given 3D object to the scene
-    addObject(obj, xPos, yPos, colour, axis, rotSpeed) {
+    addObject(obj, xPos, yPos, colour, axis, rotSpeed, id) {
         this.bufferObjects.push ({
             vertexBuffer : this.createBuffer(obj.vertices, this.gl.ARRAY_BUFFER, Float32Array),
             normalBuffer : this.createBuffer(obj.normals, this.gl.ARRAY_BUFFER, Float32Array),
@@ -131,7 +131,9 @@ class ClickableScene {
             yPos : yPos,
             colour : colour,
             axis : axis,
-            rotSpeed : rotSpeed
+            rotSpeed : rotSpeed,
+            id : id,
+            highlight : false
         });
     }
 
@@ -181,15 +183,26 @@ class ClickableScene {
             // Model
             let theta = performance.now()/1000;
             let modelMatrix = mat4.create();
-            mat4.fromRotation(modelMatrix, bufferObject.rotSpeed * theta, bufferObject.axis);
+            // mat4.fromRotation(modelMatrix, bufferObject.rotSpeed * theta, bufferObject.axis);
             mat4.translate(modelMatrix, modelMatrix,[bufferObject.xPos, bufferObject.yPos,0]);
             mat4.rotate(modelMatrix, modelMatrix, theta * bufferObject.rotSpeed, bufferObject.axis);
             
             // Pass uniform matrices
             this.gl.uniformMatrix4fv(this.gl.getUniformLocation(program, "uModelMatrix"), false, modelMatrix);
-            this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
             // Pass uniform colour
-            this.gl.uniform3fv(this.gl.getUniformLocation(program, "uColour"), bufferObject.colour);
+            this.gl.uniform3fv(this.gl.getUniformLocation(program, "uColour"), bufferObject.highlight ? [1.0,1.0,1.0] : bufferObject.colour);
+            // Pass uniform id
+            let u_id = [
+                ((bufferObject.id >> 0) & 0xFF) / 0xFF,
+                ((bufferObject.id >>  8) & 0xFF) / 0xFF,
+                ((bufferObject.id >> 16) & 0xFF) / 0xFF,
+                ((bufferObject.id >> 24) & 0xFF) / 0xFF,
+            ]
+            this.gl.uniform4f(this.gl.getUniformLocation(program, "uId"), ...u_id)
+
+            // Draw
+            this.gl.drawElements(this.gl.TRIANGLES, bufferObject.number, this.gl.UNSIGNED_SHORT, 0);
+            
         }
     }
 
@@ -202,14 +215,21 @@ class ClickableScene {
         
         this.gl.clearDepth(1.0);
         this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
-        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);// CAREFUL THIS IS AN ISSUE
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        // this.gl.clearColor(0.1, 0.1, 0.1, 0.7);// CAREFUL THIS IS AN ISSUE
+        // this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         this.gl.enable(this.gl.DEPTH_TEST);
 
         this.drawObjects(this.pickProgram);
 
         // Get the colour under the mouse
         this.gl.readPixels(this.mousePos[0], this.mousePos[1], 1,1,this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.currentColor);
+
+        // Get the object id
+        let id = this.currentColor[0] + (this.currentColor[1] << 8) + (this.currentColor[2] << 16) + (this.currentColor[3] << 24);
+        if(id!=0){
+            this.bufferObjects[id-1].highlight = true;
+        }
+
         // Now draw to canvas using the normal program
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
 
@@ -319,7 +339,8 @@ for(let i = 0; i < 9; i++) {
     scene.addObject(c, x, y, 
         [Math.random(), Math.random(), Math.random()], // Colour
         [Math.random(), Math.random(), Math.random()], // Axis rotation
-        Math.random()*2 // Rotation speed
+        Math.random()*2, // Rotation speed
+        i+1 // id
         );
 }
 scene.run();
