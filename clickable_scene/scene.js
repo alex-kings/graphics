@@ -12,6 +12,8 @@ class ClickableScene {
     bufferObjects = [];
     projectionMatrix;
     pickingRenderTarget;
+    mousePos = [-1,-1]; // Vector for the position of the mouse on canvas, in canvas pixels.
+    currentColor = new Uint8Array(8); // Current color under the mouse
 
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
@@ -89,6 +91,16 @@ class ClickableScene {
         // Projection (perspective * view)
         this.projectionMatrix = mat4.create();
         mat4.mul(this.projectionMatrix, perspectiveMatrix, viewMatrix);
+
+        // Add event listener to canvas for mouse position
+        this.canvas.addEventListener("mousemove",(e)=>{
+            this.mousePos = [e.clientX - this.canvas.offsetLeft, e.clientY - this.canvas.offsetTop];
+            this.mousePos[1] = this.canvas.height - this.mousePos[1];
+        })
+        this.canvas.addEventListener("click",()=>{
+            console.log(this.currentColor);
+        })
+
     }
 
     /**
@@ -156,11 +168,6 @@ class ClickableScene {
     drawObjects(program) {
         // time
         this.now = performance.now();
-        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);// CAREFUL THIS IS AN ISSUE
-        this.gl.clearDepth(1.0);
-        this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-        this.gl.enable(this.gl.DEPTH_TEST);
 
         this.gl.useProgram(program);
 
@@ -192,10 +199,26 @@ class ClickableScene {
     animate() {
         // Draw to render target using the pick program
         this.pickingRenderTarget.bind();
+        
+        this.gl.clearDepth(1.0);
+        this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
+        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);// CAREFUL THIS IS AN ISSUE
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        this.gl.enable(this.gl.DEPTH_TEST);
+
         this.drawObjects(this.pickProgram);
 
+        // Get the colour under the mouse
+        this.gl.readPixels(this.mousePos[0], this.mousePos[1], 1,1,this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.currentColor);
         // Now draw to canvas using the normal program
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+
+        this.gl.clearDepth(1.0);
+        this.gl.viewport(0,0,this.canvas.width, this.canvas.height);
+        this.gl.clearColor(0.1, 0.1, 0.1, 0.7);// CAREFUL THIS IS AN ISSUE
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        this.gl.enable(this.gl.DEPTH_TEST);
+
         this.drawObjects(this.program);
 
         requestAnimationFrame(this.animate.bind(this));
@@ -301,16 +324,3 @@ for(let i = 0; i < 9; i++) {
 }
 scene.run();
 
-canvas.addEventListener("mousemove",(e)=>{
-    let mousePos = [e.clientX - canvas.offsetLeft, e.clientY - canvas.offsetTop];
-    // Put in webgl coordinates
-
-
-})
-
-canvas.addEventListener("click",()=>{
-    scene.pickingRenderTarget.bind();
-    const data = new Uint8Array(4);
-    scene.gl.readPixels(130,130, 1,1,scene.gl.RGBA, scene.gl.UNSIGNED_BYTE, data);
-    console.log(data);
-})
